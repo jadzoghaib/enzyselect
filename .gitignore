@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Streamlit local secrets (this project needs none — keep it that way)
+.streamlit/secrets.toml
+
+# Cached AlphaFold coordinate files are regenerable:
+#   python -m src.structures
+# Comment the next line out if you want a fully offline clone.
+data/structure_cache/
+
+.DS_Store
+Thumbs.db

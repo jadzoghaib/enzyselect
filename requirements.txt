@@ -1,0 +1,16 @@
+# EnzySelect — educational prototype dependencies
+# Pinned to lower bounds that the code is tested against.
+
+streamlit>=1.40,<2
+pandas>=2.2,<3
+numpy>=1.26,<3
+plotly>=5.22
+requests>=2.32
+
+# Optional-but-included: sequence utilities and structure viewing.
+# The app degrades gracefully if these are missing or if network calls fail.
+biopython>=1.83
+py3Dmol>=2.1
+
+# Development / verification only
+pytest>=8.0
