@@ -170,11 +170,11 @@ def score_contribution_bar(row: pd.Series) -> go.Figure:
 def radar_chart(row: pd.Series, portfolio_mean: pd.Series) -> go.Figure:
     """Candidate profile against the portfolio average across the 6 components."""
     labels = [COMPONENT_LABELS[k] for k in COMPONENT_KEYS]
-    closed = labels + [labels[0]]
+    closed = [*labels, labels[0]]
 
     def values(source) -> list[float]:
         vals = [float(source[k]) for k in COMPONENT_KEYS]
-        return vals + [vals[0]]
+        return [*vals, vals[0]]
 
     fig = go.Figure()
     for name, source, color in (

@@ -17,10 +17,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import BANNED_TERMS, SCIENTIFIC_INTEGRITY_NOTES  # noqa: E402
+from src.config import BANNED_TERMS, SCIENTIFIC_INTEGRITY_NOTES
+
+ROOT = Path(__file__).resolve().parent.parent
 
 SCANNED_FILES = [
     ROOT / "app.py",

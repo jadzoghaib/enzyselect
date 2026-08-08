@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.economics import (  # noqa: E402
+from src.economics import (
     assumptions_frame,
     compute_economics,
     format_eur,

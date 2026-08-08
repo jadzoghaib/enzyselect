@@ -15,3 +15,7 @@ data/structure_cache/
 
 .DS_Store
 Thumbs.db
+
+# Coverage artefacts
+.coverage
+htmlcov/

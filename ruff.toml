@@ -1,0 +1,44 @@
+# Lint configuration for EnzySelect.
+#
+# The selected set is deliberately correctness-weighted: it should catch real
+# defects rather than argue about formatting. Run with:
+#     ruff check .
+
+line-length = 90
+target-version = "py310"
+exclude = [".venv", "__pycache__", ".pytest_cache"]
+
+[lint]
+select = [
+    "F",    # pyflakes: undefined names, unused imports and variables
+    "E4",   # import placement (E402 is suppressed locally where sys.path is set)
+    "E7",   # statement-level mistakes
+    "E9",   # syntax and IO errors
+    "B",    # bugbear: likely bugs (mutable defaults, strict zip, ...)
+    "ARG",  # unused arguments
+    "SIM",  # simplifications that remove branches
+    "RET",  # inconsistent returns
+    "I",    # import ordering
+    "UP",   # outdated syntax
+    "RUF",  # ruff-specific, incl. unused noqa
+]
+
+ignore = [
+    # Plotly's API is keyword-heavy and its own documentation uses dict(...)
+    # throughout; rewriting ~47 of these as literals would make the figure
+    # code read less like the library it drives.
+    "C408",
+    # Long disclaimer strings are deliberately wrapped across lines inside
+    # list literals. Verified by tests/test_language.py, which asserts the
+    # expected item counts so a genuinely missing comma cannot hide here.
+    "ISC001", "ISC002", "ISC003", "ISC004",
+    # Typographic characters in user-facing strings are intentional: the en
+    # dash in ranges ("0-100" reads as "0 to 100") and the multiplication sign
+    # in the cost tooltip. These are display text, never identifiers.
+    "RUF001",
+]
+
+# Note: E402 is *not* ignored per-file. Tests and the generator insert the
+# project root on sys.path before importing, and each such import carries an
+# explicit `# noqa: E402`. Keeping it local means a genuinely misplaced import
+# elsewhere in those files is still caught.

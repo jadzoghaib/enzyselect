@@ -34,6 +34,35 @@ from .config import (
 
 COMPONENT_KEYS = list(DEFAULT_WEIGHTS)
 
+# Every input column that feeds a component score. A candidate missing any of
+# these cannot be scored.
+SCORED_INPUT_COLUMNS = [
+    "estimated_temperature_optimum",
+    "estimated_ph_optimum",
+    "estimated_salinity_tolerance",
+    "synthetic_degradation_rate",
+    "catalytic_site_confidence",
+    "plddt_mean",
+    "estimated_production_cost",
+    "estimated_expression_difficulty",
+    "literature_evidence_level",
+]
+
+
+def unscoreable_mask(df: pd.DataFrame) -> np.ndarray:
+    """True for rows that cannot be scored: missing, non-numeric or infinite.
+
+    A candidate with a missing degradation rate must not be scored zero — that
+    would be a claim about the candidate rather than a statement about the
+    data. Such rows are excluded from the ranking and reported to the user
+    instead.
+    """
+    columns = [c for c in SCORED_INPUT_COLUMNS if c in df.columns]
+    if not columns:
+        return np.ones(len(df), dtype=bool)
+    numeric = df[columns].apply(pd.to_numeric, errors="coerce")
+    return ~np.isfinite(numeric.to_numpy(dtype=float)).all(axis=1)
+
 
 # --------------------------------------------------------------------------
 # Primitives
@@ -189,14 +218,40 @@ def score_candidates(
     """Return ``df`` with component scores, a 0-100 overall score and a rank.
 
     The returned frame is a copy; the input is never mutated.
+
+    Candidates whose inputs are missing, non-numeric or infinite are **excluded
+    from the ranking** rather than scored. Their ids are recorded in
+    ``result.attrs["excluded_candidate_ids"]`` so the caller can tell the user
+    which candidates were not assessed and why. Silently scoring them zero
+    would present a data gap as a judgement about the enzyme.
     """
-    if df.empty:
-        return df.copy()
-
     weights = normalize_weights(weights or DEFAULT_WEIGHTS)
-    components = compute_components(df, conditions, tolerances, subweights)
 
-    scored = df.copy()
+    if df.empty:
+        empty = df.copy()
+        empty.attrs["excluded_candidate_ids"] = []
+        empty.attrs["n_excluded"] = 0
+        return empty
+
+    unscoreable = unscoreable_mask(df)
+    excluded_ids = (
+        df.loc[unscoreable, "candidate_id"].astype(str).tolist()
+        if "candidate_id" in df.columns
+        else []
+    )
+    usable = df.loc[~unscoreable]
+
+    if usable.empty:
+        empty = usable.copy()
+        empty.attrs["excluded_candidate_ids"] = excluded_ids
+        empty.attrs["n_excluded"] = int(unscoreable.sum())
+        return empty
+
+    # Components are computed on the usable rows only, so the pool-relative
+    # normalizations are not skewed by rows that will not be ranked.
+    components = compute_components(usable, conditions, tolerances, subweights)
+
+    scored = usable.copy()
     for column in components.columns:
         scored[column] = components[column].to_numpy()
 
@@ -211,7 +266,11 @@ def score_candidates(
         scored["overall_score"].rank(ascending=False, method="first").astype(int)
     )
     scored["priority_band"] = scored["overall_score"].apply(assign_priority_band)
-    return scored.sort_values("rank").reset_index(drop=True)
+
+    result = scored.sort_values("rank").reset_index(drop=True)
+    result.attrs["excluded_candidate_ids"] = excluded_ids
+    result.attrs["n_excluded"] = int(unscoreable.sum())
+    return result
 
 
 def select_shortlist(
@@ -226,7 +285,9 @@ def select_shortlist(
     independent constraints. The binding one is reported so the user can see
     which limit is actually driving the shortlist.
     """
+    carried = dict(scored.attrs)
     scored = scored.copy()
+    scored.attrs.update(carried)
     n_pool = len(scored)
     cost_per_test_eur = max(float(cost_per_test_eur), 1e-9)
 
@@ -245,7 +306,7 @@ def select_shortlist(
         "testing budget": affordable,
         "candidates available": n_pool,
     }
-    binding = min(limits, key=limits.get)
+    binding = min(limits, key=lambda name: limits[name])
     scored.attrs["n_selected"] = n_selected
     scored.attrs["binding_constraint"] = binding
     scored.attrs["affordable_tests"] = affordable
@@ -299,7 +360,7 @@ def explain_candidate(
         f"**#{int(row['rank'])}**.",
         "",
         "**What drives the score**",
-        f"- The largest contributions come from "
+        "- The largest contributions come from "
         + " and ".join(
             f"*{r['Component'].lower()}* ({r['Points contributed']:.1f} points)"
             for _, r in drivers.iterrows()
@@ -334,7 +395,29 @@ def rank_movement(before: pd.DataFrame, after: pd.DataFrame) -> pd.DataFrame:
     """Join two rankings on candidate_id and report the rank change.
 
     Positive ``rank_change`` means the candidate moved *up* (toward rank 1).
+
+    Both frames must describe the same candidates. A plain inner join would
+    quietly drop anything present on only one side, and duplicate ids would
+    fan out into a partial cross product — either way the scenario table would
+    look plausible and be wrong, so both are rejected loudly instead.
     """
+    for name, frame in (("base", before), ("scenario", after)):
+        duplicated = frame["candidate_id"].duplicated().sum()
+        if duplicated:
+            raise ValueError(
+                f"rank_movement: {duplicated} duplicate candidate_id value(s) "
+                f"in the {name} ranking; ids must be unique."
+            )
+
+    only_before = set(before["candidate_id"]) - set(after["candidate_id"])
+    only_after = set(after["candidate_id"]) - set(before["candidate_id"])
+    if only_before or only_after:
+        raise ValueError(
+            "rank_movement: the two rankings describe different candidates "
+            f"({len(only_before)} only in base, {len(only_after)} only in "
+            "scenario). Compare rankings built from the same candidate set."
+        )
+
     left = before[["candidate_id", "enzyme_name", "rank", "overall_score"]]
     right = after[["candidate_id", "rank", "overall_score"]]
     merged = left.merge(right, on="candidate_id", suffixes=("_base", "_scenario"))

@@ -17,10 +17,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import DEFAULT_CONDITIONS, DEFAULT_WEIGHTS  # noqa: E402
-from src.scoring import (  # noqa: E402
+from src.config import DEFAULT_CONDITIONS, DEFAULT_WEIGHTS
+from src.scoring import (
     COMPONENT_KEYS,
     contribution_table,
+    explain_candidate,
     gaussian_fit,
     min_max_normalize,
     normalize_weights,
@@ -28,6 +29,7 @@ from src.scoring import (  # noqa: E402
     score_candidates,
     select_shortlist,
     threshold_fit,
+    unscoreable_mask,
 )
 
 
@@ -216,3 +218,119 @@ def test_rank_movement_against_itself_is_all_zero(candidates):
     movement = rank_movement(scored, scored)
     assert (movement["rank_change"] == 0).all()
     assert (movement["score_change"] == 0).all()
+
+
+def test_rank_movement_rejects_mismatched_candidate_sets(candidates):
+    """An inner join would silently drop the missing candidates instead."""
+    full = score_candidates(candidates, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    partial = score_candidates(candidates.head(20), DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    with pytest.raises(ValueError, match="different candidates"):
+        rank_movement(full, partial)
+
+
+def test_rank_movement_rejects_duplicate_ids(candidates):
+    """Duplicates would fan out into a partial cross product."""
+    doubled = pd.concat([candidates, candidates.head(1)], ignore_index=True)
+    scored = score_candidates(doubled, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    with pytest.raises(ValueError, match="duplicate candidate_id"):
+        rank_movement(scored, scored)
+
+
+# --------------------------------------------------------------------------
+# Unscoreable candidates
+#
+# A missing input is a gap in the data, not a fact about the enzyme. These
+# rows must be excluded and reported, never scored zero and never crash.
+# --------------------------------------------------------------------------
+def test_missing_value_does_not_crash_the_ranking(candidates):
+    broken = candidates.copy()
+    broken.loc[0, "synthetic_degradation_rate"] = np.nan
+    scored = score_candidates(broken, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert len(scored) == len(candidates) - 1
+    assert scored["overall_score"].notna().all()
+
+
+def test_excluded_candidates_are_reported_by_id(candidates):
+    broken = candidates.copy()
+    broken.loc[0, "plddt_mean"] = np.nan
+    broken.loc[3, "estimated_production_cost"] = np.inf
+    scored = score_candidates(broken, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert scored.attrs["n_excluded"] == 2
+    assert set(scored.attrs["excluded_candidate_ids"]) == {
+        candidates.loc[0, "candidate_id"],
+        candidates.loc[3, "candidate_id"],
+    }
+
+
+def test_an_excluded_candidate_is_not_scored_zero(candidates):
+    broken = candidates.copy()
+    broken.loc[0, "catalytic_site_confidence"] = np.nan
+    scored = score_candidates(broken, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert candidates.loc[0, "candidate_id"] not in set(scored["candidate_id"])
+
+
+def test_non_numeric_junk_is_treated_as_unscoreable(candidates):
+    broken = candidates.copy()
+    broken["estimated_ph_optimum"] = broken["estimated_ph_optimum"].astype(object)
+    broken.loc[1, "estimated_ph_optimum"] = "not a number"
+    scored = score_candidates(broken, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert scored.attrs["n_excluded"] == 1
+
+
+def test_all_rows_unscoreable_returns_empty_not_an_exception(candidates):
+    broken = candidates.copy()
+    broken["plddt_mean"] = np.nan
+    scored = score_candidates(broken, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert scored.empty
+    assert scored.attrs["n_excluded"] == len(candidates)
+
+
+def test_exclusion_does_not_skew_pool_relative_normalization(candidates):
+    """A dropped row must not shift the min-max range of the survivors."""
+    clean = score_candidates(candidates.iloc[1:], DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    broken = candidates.copy()
+    broken.loc[0, "synthetic_degradation_rate"] = np.nan
+    with_gap = score_candidates(broken, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    pd.testing.assert_series_equal(
+        clean.set_index("candidate_id")["overall_score"].sort_index(),
+        with_gap.set_index("candidate_id")["overall_score"].sort_index(),
+    )
+
+
+def test_unscoreable_mask_flags_only_the_bad_rows(candidates):
+    broken = candidates.copy()
+    broken.loc[7, "estimated_temperature_optimum"] = np.nan
+    mask = unscoreable_mask(broken)
+    assert mask.sum() == 1 and bool(mask[7])
+
+
+def test_clean_dataset_excludes_nobody(candidates):
+    scored = score_candidates(candidates, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert scored.attrs["n_excluded"] == 0
+    assert len(scored) == len(candidates)
+
+
+# --------------------------------------------------------------------------
+# Explanation text
+# --------------------------------------------------------------------------
+def test_explanation_names_the_candidate_and_its_score(candidates):
+    scored = score_candidates(candidates, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    row = scored.iloc[0]
+    text = explain_candidate(row, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    assert str(row["enzyme_name"]) in text
+    assert f"{row['overall_score']:.1f}" in text
+
+
+def test_explanation_always_states_the_limitations(candidates):
+    scored = score_candidates(candidates, DEFAULT_CONDITIONS, DEFAULT_WEIGHTS)
+    for i in (0, 5, len(scored) - 1):
+        text = explain_candidate(scored.iloc[i], DEFAULT_CONDITIONS, DEFAULT_WEIGHTS).lower()
+        assert "synthetic" in text
+        assert "requires experimental validation" in text
+        assert "not activity" in text or "no information about activity" in text
+
+
+def test_explanation_survives_all_zero_weights(candidates):
+    weights = {k: 0.0 for k in DEFAULT_WEIGHTS}
+    scored = score_candidates(candidates, DEFAULT_CONDITIONS, weights)
+    assert explain_candidate(scored.iloc[0], DEFAULT_CONDITIONS, weights)

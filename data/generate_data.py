@@ -31,7 +31,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import (  # noqa: E402
+from src.config import (
     ALPHAFOLD_API_URL,
     ALPHAFOLD_ENTRY_URL,
     CANDIDATES_CSV,
@@ -114,11 +114,58 @@ def resolve_reference(family: str, spec: dict) -> dict:
     return record
 
 
+# Fields that describe a *live lookup*. When the APIs are unreachable these
+# must be carried over from the previous verified run rather than blanked:
+# overwriting them would silently destroy real metadata (and, downstream, every
+# candidate's structure URL) as a side effect of being offline.
+PRESERVED_WHEN_OFFLINE = [
+    "reference_protein_name",
+    "reference_organism",
+    "reference_sequence_length",
+    "alphafold_model_pdb_url",
+    "alphafold_model_cif_url",
+    "reference_plddt_mean_real",
+    "metadata_source",
+    "verified_on",
+]
+
+
 def build_reference_table() -> pd.DataFrame:
     rows = [resolve_reference(name, spec) for name, spec in STRUCTURE_FAMILIES.items()]
     df = pd.DataFrame(rows)
     df["verified_on"] = pd.Timestamp.utcnow().strftime("%Y-%m-%d")
     df["data_provenance"] = "real_public_database_record"
+
+    offline = df["metadata_source"] == "offline_fallback_from_config"
+    if not offline.any():
+        return df
+
+    restored = 0
+    if REFERENCES_CSV.is_file():
+        prior = pd.read_csv(REFERENCES_CSV).drop_duplicates(
+            subset="reference_uniprot_id"
+        ).set_index("reference_uniprot_id")
+        for idx in df.index[offline]:
+            accession = df.at[idx, "reference_uniprot_id"]
+            if accession not in prior.index:
+                continue
+            for column in PRESERVED_WHEN_OFFLINE:
+                if column in prior.columns and pd.notna(prior.at[accession, column]):
+                    df.at[idx, column] = prior.at[accession, column]
+            restored += 1
+
+    unresolved = int(offline.sum()) - restored
+    print(
+        f"  WARNING: {int(offline.sum())} anchor(s) could not be verified "
+        f"(APIs unreachable). Preserved {restored} from the previous verified "
+        f"run; {unresolved} have no prior record."
+    )
+    if unresolved:
+        print(
+            "  Those anchors will have an empty model URL, which will also "
+            "empty predicted_structure_url for their candidates. Re-run with "
+            "network access to restore them."
+        )
     return df
 
 
@@ -217,11 +264,11 @@ def generate_candidates(
         {
             "candidate_id": [f"ENZ-SYN-{i:03d}" for i in range(1, n + 1)],
             "enzyme_name": [
-                f"SYN-{code}-{i:03d}" for i, code in zip(range(1, n + 1), fam_code)
+                f"SYN-{code}-{i:03d}"
+                for i, code in zip(range(1, n + 1), fam_code, strict=True)
             ],
             "structure_family": families,
             "organism": environments,
-            "source_environment": environments,
             "sequence_length": seq_len,
             # Synthetic candidates have no accession. Deliberately empty.
             "uniprot_id": "",

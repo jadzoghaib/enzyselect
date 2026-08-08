@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import src.visualizations as viz
 from src.config import (
     CANDIDATES_CSV,
     COMPONENT_LABELS,
@@ -53,7 +54,6 @@ from src.structures import (
     structure_summary,
     viewer_html,
 )
-import src.visualizations as viz
 
 st.set_page_config(
     page_title="EnzySelect — enzyme candidate prioritization (demo)",
@@ -116,6 +116,14 @@ def load_candidates() -> pd.DataFrame:
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"candidates.csv is missing columns: {missing}")
+    duplicated = df["candidate_id"].duplicated()
+    if duplicated.any():
+        offenders = sorted(set(df.loc[duplicated, "candidate_id"].astype(str)))[:5]
+        raise ValueError(
+            f"candidates.csv has {int(duplicated.sum())} duplicate candidate_id "
+            f"value(s), e.g. {offenders}. Ids must be unique — duplicates would "
+            "silently inflate the scenario comparison."
+        )
     return df
 
 
@@ -183,6 +191,15 @@ def sidebar_controls(n_candidates: int) -> dict:
         "Maximum number of candidates to test", 1, min(30, n_candidates),
         int(DEFAULT_ECONOMICS["max_candidates"]),
     )
+    pool_size = st.sidebar.number_input(
+        "Original screening pool size", min_value=1, max_value=1_000_000,
+        value=int(n_candidates), step=1,
+        help="How many candidates you would otherwise have tested "
+             "exhaustively. Defaults to the number loaded. Set it higher if "
+             "the loaded set is already a filtered subset of a larger pool — "
+             "the baseline cost, and therefore the avoided cost, scales with "
+             "this number.",
+    )
 
     st.sidebar.subheader("Scoring weights")
     st.sidebar.caption(
@@ -192,10 +209,15 @@ def sidebar_controls(n_candidates: int) -> dict:
     weights = {}
     for key, default in DEFAULT_WEIGHTS.items():
         weights[key] = st.sidebar.slider(
-            COMPONENT_LABELS[key], 0.0, 1.0, float(default), 0.05
+            COMPONENT_LABELS[key], 0.0, 1.0, float(default), 0.05,
+            key=f"weight_{key}",
         )
+    # Reset only the weight widgets. Clearing all of session_state would also
+    # wipe the scenario sliders and viewer toggles, which the label does not
+    # promise. Dropping the keys makes each slider fall back to its default.
     if st.sidebar.button("Reset weights to default", width="stretch"):
-        st.session_state.clear()
+        for key in DEFAULT_WEIGHTS:
+            st.session_state.pop(f"weight_{key}", None)
         st.rerun()
 
     with st.sidebar.expander("Advanced — fit tolerances"):
@@ -236,6 +258,7 @@ def sidebar_controls(n_candidates: int) -> dict:
         "cost_per_test": cost_per_test,
         "budget": budget,
         "max_candidates": max_candidates,
+        "pool_size": int(pool_size),
         "weeks_per_cycle": weeks_per_cycle,
         "tests_per_cycle": tests_per_cycle,
         "allow_network": allow_network,
@@ -599,13 +622,12 @@ def render_scenario(df: pd.DataFrame, base: pd.DataFrame, settings: dict) -> Non
         }),
         hide_index=True, height=320,
     )
-    return scenario_conditions
 
 
 # --------------------------------------------------------------------------
 # Section 6 — economics
 # --------------------------------------------------------------------------
-def render_economics(scored: pd.DataFrame, settings: dict, economics: dict) -> None:
+def render_economics(settings: dict, economics: dict) -> None:
     st.subheader("Illustrative economics")
     st.info(
         "**Not a validated ROI estimate.** These figures are arithmetic on "
@@ -814,11 +836,31 @@ def main() -> None:
 
     scored = score_candidates(df, settings["conditions"], settings["weights"],
                               settings["tolerances"], settings["subweights"])
+
+    excluded = scored.attrs.get("excluded_candidate_ids", [])
+    if scored.empty:
+        st.error(
+            f"None of the {len(df)} candidates could be scored: every row has "
+            "a missing, non-numeric or infinite value in a column the scoring "
+            "model needs. Check `data/candidates.csv`, or regenerate it with "
+            "`python data/generate_data.py`."
+        )
+        st.stop()
+    if excluded:
+        st.warning(
+            f"**{len(excluded)} of {len(df)} candidates could not be scored** "
+            "and are excluded from every view below, including the economics. "
+            "Each is missing a value the model needs. They are not ranked "
+            "last — they are not assessed at all, because a data gap is not a "
+            f"judgement about the candidate. Excluded: "
+            f"{', '.join(excluded[:8])}{' …' if len(excluded) > 8 else ''}."
+        )
+
     scored = select_shortlist(scored, settings["max_candidates"],
                               settings["budget"], settings["cost_per_test"])
 
     economics = compute_economics(
-        pool_size=len(df),
+        pool_size=settings["pool_size"],
         n_selected=scored.attrs["n_selected"],
         cost_per_test_eur=settings["cost_per_test"],
         weeks_per_cycle=settings["weeks_per_cycle"],
@@ -839,7 +881,7 @@ def main() -> None:
     with tabs[2]:
         render_scenario(df, scored, settings)
     with tabs[3]:
-        render_economics(scored, settings, economics)
+        render_economics(settings, economics)
     with tabs[4]:
         render_downloads(scored, settings, economics)
     with tabs[5]:

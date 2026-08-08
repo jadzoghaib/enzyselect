@@ -12,5 +12,5 @@ requests>=2.32
 biopython>=1.83
 py3Dmol>=2.1
 
-# Development / verification only
-pytest>=8.0
+# Test and lint tooling lives in requirements-dev.txt so it does not ship
+# inside the production container image.

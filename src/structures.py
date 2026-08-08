@@ -24,6 +24,7 @@ geometry, not stability or catalytic performance.**
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -147,11 +148,11 @@ def get_structure(uniprot_id: str, allow_network: bool = True) -> StructureResul
         if metadata and metadata["pdb_url"]:
             result.model_url = metadata["pdb_url"]
             result.real_mean_plddt = metadata["mean_plddt"]
-            text = _download(metadata["pdb_url"])
-            if text:
+            downloaded = _download(metadata["pdb_url"])
+            if downloaded:
                 result.available = True
                 result.source = "alphafold_api"
-                result.pdb_text = text
+                result.pdb_text = downloaded
                 result.message = (
                     f"Retrieved AlphaFold model {metadata['entry_id']} "
                     f"(version {metadata['model_version']}) live from the "
@@ -159,7 +160,7 @@ def get_structure(uniprot_id: str, allow_network: bool = True) -> StructureResul
                 )
                 try:
                     STRUCTURE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                    cached.write_text(text, encoding="utf-8")
+                    cached.write_text(downloaded, encoding="utf-8")
                 except OSError:
                     pass
                 return result
@@ -238,10 +239,10 @@ def structure_summary(pdb_text: str) -> dict:
     for line in pdb_text.splitlines():
         if line.startswith("ATOM") and line[12:16].strip() == "CA":
             ca_count += 1
-            try:
+            # A malformed B-factor column costs us one confidence value, not
+            # the whole parse.
+            with contextlib.suppress(ValueError):
                 plddt_values.append(float(line[60:66]))
-            except ValueError:
-                pass
     mean_plddt = sum(plddt_values) / len(plddt_values) if plddt_values else None
     confident = (
         sum(1 for v in plddt_values if v >= 70) / len(plddt_values) * 100.0
@@ -261,7 +262,7 @@ def prefetch_all() -> None:
 
     STRUCTURE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     for family, spec in STRUCTURE_FAMILIES.items():
-        acc = spec["uniprot"]
+        acc = str(spec["uniprot"])
         result = get_structure(acc, allow_network=True)
         status = "cached" if result.is_real_structure else "FAILED"
         size = len(result.pdb_text or "")

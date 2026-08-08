@@ -46,7 +46,8 @@ quality it cannot vouch for.
 ## 3. User journey
 
 1. **Set process requirements** in the sidebar — operating temperature, pH,
-   salinity, testing budget, maximum number of candidates to test.
+   salinity, testing budget, maximum number of candidates to test, and the size
+   of the original screening pool the baseline cost is measured against.
 2. **Tune the scoring weights** to reflect what actually matters for the
    programme (raw performance? manufacturability? evidence?).
 3. **Read the executive summary** — how many candidates were assessed, how many
@@ -69,7 +70,9 @@ quality it cannot vouch for.
 ```
 enzyselect/
 ├── app.py                       Streamlit dashboard (7 sections, 6 tabs)
-├── requirements.txt
+├── requirements.txt             Runtime dependencies only
+├── requirements-dev.txt         Adds pytest, coverage, ruff, mypy
+├── ruff.toml                    Correctness-weighted lint configuration
 ├── Dockerfile
 ├── README.md
 ├── .streamlit/config.toml       Pins the light theme the palette was validated against
@@ -84,7 +87,9 @@ enzyselect/
 │   ├── economics.py             Illustrative cost and time arithmetic
 │   ├── structures.py            AlphaFold/UniProt integration + graceful degradation
 │   └── visualizations.py        Plotly figures
-└── tests/                       54 tests: scoring, economics, integrity language
+├── docs/screenshots/            Placeholder — no screenshots captured yet
+└── tests/                       93 tests: scoring, economics, structures,
+                                 figures, and integrity-language guards
 ```
 
 **Data flow**
@@ -119,7 +124,7 @@ structure_references.csv ──► structures.get_structure()
 | `candidate_id` | str | synthetic | `ENZ-SYN-001` … |
 | `enzyme_name` | str | synthetic | `SYN-<family>-<n>` — deliberately not a real enzyme name |
 | `structure_family` | str | modelling choice | One of five structural families |
-| `organism` / `source_environment` | str | synthetic | Simulated metagenomic provenance, not a species claim |
+| `organism` | str | synthetic | Simulated metagenomic provenance, not a species claim |
 | `sequence_length` | int | synthetic | Residues |
 | `uniprot_id` | str | **empty by design** | Synthetic candidates have no accession |
 | `plddt_mean` | float | **synthetic** | Illustrative structural-confidence value |
@@ -213,6 +218,19 @@ point of the tool and also its central limitation.
 - Because the dataset is synthetic, the ranking cannot be evaluated for
   accuracy. There is nothing to be right or wrong about.
 
+### Handling incomplete data
+
+A candidate missing any value the scoring model needs — blank, non-numeric or
+infinite — is **excluded from the ranking and named in a warning**, not scored
+zero and not ranked last. A gap in the data is a fact about the dataset, not a
+judgement about the enzyme, and the two must not be allowed to look alike. The
+excluded rows are left out of the economics as well, so the shortlist and the
+cost figures always describe the same set of candidates.
+
+Duplicate `candidate_id` values are rejected outright at load time: they would
+otherwise fan out the scenario comparison into a partial cross product, which
+produces a table that looks plausible and is wrong.
+
 ## 8. What pLDDT means — and what it does not
 
 pLDDT is AlphaFold's **per-residue confidence in its own predicted local
@@ -257,10 +275,15 @@ No API key, no account and no network access are required. With the sidebar
 toggle **Allow external API calls** switched off, the app uses only locally
 cached structures; the ranking never depends on network access at all.
 
-Run the tests with:
+Run the tests and quality checks with:
 
 ```bash
-python -m pytest tests -q
+pip install -r requirements-dev.txt
+
+python -m pytest tests -q          # 93 tests
+python -m ruff check .             # lint
+python -m mypy src app.py --ignore-missing-imports
+python -m coverage run --source=src -m pytest tests -q && python -m coverage report
 ```
 
 ## 10. Docker
@@ -276,8 +299,9 @@ runs as a non-root user, and exposes a healthcheck on
 
 ## 11. Screenshots
 
-Add screenshots to `docs/screenshots/` and link them here once you have run the
-app locally:
+**None have been captured yet.** The list below is a placeholder — the files do
+not exist in this repository. Add them to `docs/screenshots/` after running the
+app locally, then link them here:
 
 - `docs/screenshots/01-executive-summary.png` — summary tiles and disclaimer
 - `docs/screenshots/02-ranked-candidates.png` — ranked table and portfolio view
