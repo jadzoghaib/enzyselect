@@ -32,10 +32,17 @@ RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
+# Cloud Run, Render, Railway, Heroku and Fly inject $PORT and expect the
+# process to bind it. Default to 8501 so local `docker run -p 8501:8501`
+# behaves exactly as before.
+ENV PORT=8501
 EXPOSE 8501
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+    CMD curl --fail "http://localhost:${PORT:-8501}/_stcore/health" || exit 1
 
-CMD ["streamlit", "run", "app.py", \
-     "--server.port=8501", "--server.address=0.0.0.0"]
+# `sh -c` so ${PORT} is expanded at runtime — the exec form (a JSON array)
+# does not expand environment variables. `exec` then replaces the shell with
+# Streamlit so it runs as PID 1 and receives SIGTERM directly, which keeps
+# container shutdown prompt instead of waiting for the platform to SIGKILL.
+CMD ["sh", "-c", "exec streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]

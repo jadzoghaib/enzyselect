@@ -309,8 +309,20 @@ docker run --rm -p 8501:8501 enzyselect
 ```
 
 Then open <http://localhost:8501>. The image ships with the committed dataset,
-runs as a non-root user, and exposes a healthcheck on
-`/_stcore/health`.
+runs as a non-root user, and exposes a healthcheck on `/_stcore/health`.
+
+The container binds `$PORT` and falls back to 8501, so it also runs unchanged
+on platforms that assign the port for you:
+
+```bash
+docker run --rm -e PORT=9000 -p 9000:9000 enzyselect
+```
+
+Note that `data/structure_cache/` is not in version control, so a freshly
+built image fetches reference structures from AlphaFold on first use. To bake
+them in and make the first deep-dive view instant, add
+`RUN python -m src.structures` to the Dockerfile after `COPY . .` — at the
+cost of requiring network access during the build.
 
 ## 11. Screenshots
 
@@ -361,6 +373,13 @@ good intentions.
 - Persist scenarios so two rankings can be compared side by side over time.
 - Add a proper structure viewer that highlights the catalytic residues.
 - Batch structure prefetching with a progress indicator.
+
+## 14. Licence
+
+[MIT](LICENSE). The permissive licence covers the *code*; it is not an
+endorsement of the outputs. The dataset is synthetic and the scoring model is
+an unvalidated heuristic, so anyone reusing this must not present its results
+as scientific evidence.
 
 ---
 
