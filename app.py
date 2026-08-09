@@ -370,7 +370,11 @@ def render_ranked_candidates(scored: pd.DataFrame, conditions: dict) -> None:
 # Section 4 — candidate deep dive
 # --------------------------------------------------------------------------
 def render_structure_panel(row: pd.Series, allow_network: bool) -> None:
-    accession = str(row.get("structure_reference_uniprot_id", "") or "")
+    # A blank cell reads back from CSV as NaN, and `NaN or ""` is truthy — the
+    # old guard let "nan" through as if it were an accession, and the app then
+    # tried to resolve a structure for it.
+    raw = row.get("structure_reference_uniprot_id", "")
+    accession = "" if pd.isna(raw) else str(raw).strip()
     st.markdown("**Predicted structure — family reference**")
     st.info(STRUCTURE_LINK_CAVEAT)
 

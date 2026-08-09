@@ -38,6 +38,12 @@ ignore = [
     "RUF001",
 ]
 
+[lint.per-file-ignores]
+# Test doubles have to mirror the signature of whatever they stand in for —
+# a fake `requests.get` must accept `timeout` even though it ignores it. Those
+# arguments are structural, not dead code.
+"tests/*" = ["ARG001", "ARG002", "ARG005"]
+
 # Note: E402 is *not* ignored per-file. Tests and the generator insert the
 # project root on sys.path before importing, and each such import carries an
 # explicit `# noqa: E402`. Keeping it local means a genuinely misplaced import

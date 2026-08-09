@@ -88,8 +88,9 @@ enzyselect/
 │   ├── structures.py            AlphaFold/UniProt integration + graceful degradation
 │   └── visualizations.py        Plotly figures
 ├── docs/screenshots/            Placeholder — no screenshots captured yet
-└── tests/                       93 tests: scoring, economics, structures,
-                                 figures, and integrity-language guards
+└── tests/                       138 tests: scoring, economics, structures,
+                                 network fallbacks, figures, the Streamlit app
+                                 end-to-end, and integrity-language guards
 ```
 
 **Data flow**
@@ -280,11 +281,25 @@ Run the tests and quality checks with:
 ```bash
 pip install -r requirements-dev.txt
 
-python -m pytest tests -q          # 93 tests
+python -m pytest tests -q          # 138 tests
 python -m ruff check .             # lint
 python -m mypy src app.py --ignore-missing-imports
-python -m coverage run --source=src -m pytest tests -q && python -m coverage report
+python -m coverage run -m pytest tests -q && python -m coverage report
 ```
+
+Coverage is **99% of everything that ships**, `app.py` included — the settings
+in `.coveragerc` measure the whole application, not just `src/`.
+
+Six statements are deliberately left uncovered: a fallback for older Streamlit
+versions, the branch for an unreadable cache file, and two similar defensive
+guards. Reaching them would mean asserting against mocks rather than
+behaviour, and they are left visible in the report rather than hidden behind
+`# pragma: no cover`.
+
+The application itself is tested through Streamlit's `AppTest` harness
+(`tests/test_app.py`), and the AlphaFold integration is tested against an
+injected fake `requests` module (`tests/test_structures_network.py`), so the
+whole suite runs offline in about 30 seconds.
 
 ## 10. Docker
 

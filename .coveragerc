@@ -1,0 +1,25 @@
+# Coverage configuration.
+#
+# `source = .` is deliberate. Measuring only `src/` excluded app.py — the
+# largest shipped file — and reported 87% when the true figure was 54%. A
+# metric that hides the biggest module is worse than no metric, because it
+# reads as reassurance.
+#
+# Run:  python -m coverage run -m pytest tests -q && python -m coverage report
+
+[run]
+source = .
+omit =
+    tests/*
+    data/*
+    .venv/*
+
+[report]
+precision = 0
+show_missing = True
+
+# Nothing is excluded from the report. The handful of uncovered lines are
+# defensive branches (an older-Streamlit fallback, an unreadable cache file)
+# that are documented in the README rather than hidden with pragmas — a
+# `# pragma: no cover` would make the number look better while telling the
+# reader less.

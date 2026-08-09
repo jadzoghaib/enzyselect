@@ -17,9 +17,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import DEFAULT_CONDITIONS, DEFAULT_WEIGHTS
+from src.config import DEFAULT_CONDITIONS, DEFAULT_WEIGHTS, PRIORITY_BANDS
 from src.scoring import (
     COMPONENT_KEYS,
+    assign_priority_band,
     contribution_table,
     explain_candidate,
     gaussian_fit,
@@ -84,6 +85,24 @@ def test_min_max_normalize_maps_a_constant_column_to_one_half():
 def test_min_max_normalize_spans_zero_to_one():
     out = min_max_normalize([2.0, 4.0, 6.0])
     assert out.min() == 0.0 and out.max() == 1.0
+
+
+def test_min_max_normalize_handles_an_empty_input():
+    assert len(min_max_normalize([])) == 0
+
+
+def test_priority_band_has_a_floor_for_impossible_scores():
+    assert assign_priority_band(-5.0) == PRIORITY_BANDS[-1][1]
+
+
+def test_unrecognised_columns_make_everything_unscoreable(candidates):
+    """Fail safe, not fail silent.
+
+    If the input columns are renamed, nothing can be scored — the model must
+    refuse the whole set rather than quietly ranking on absent evidence.
+    """
+    renamed = candidates.rename(columns={c: f"x_{c}" for c in candidates.columns})
+    assert unscoreable_mask(renamed).all()
 
 
 def test_normalize_weights_sums_to_one():
