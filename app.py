@@ -273,19 +273,26 @@ def render_executive_summary(scored: pd.DataFrame, economics: dict) -> None:
     top = scored.iloc[0]
     n_selected = scored.attrs.get("n_selected", 0)
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Candidates assessed", f"{len(scored)}", border=True)
-    c2.metric("Recommended for testing", f"{n_selected}", border=True)
-    c3.metric(
+    # Laid out 3 + 2 rather than 5 across. Five equal columns leave roughly
+    # 210px each, which truncated the labels to "Candidates asses…" and, worse,
+    # the headline value to "SYN-TFC…" on the deployed app. The labels carry
+    # deliberately hedged wording ("Potential avoided testing cost", not
+    # "Savings"), so the layout gives way rather than the words.
+    top_row = st.columns(3)
+    bottom_row = st.columns(2)
+
+    top_row[0].metric("Candidates assessed", f"{len(scored)}", border=True)
+    top_row[1].metric("Recommended for testing", f"{n_selected}", border=True)
+    top_row[2].metric(
         "Top candidate", str(top["enzyme_name"]),
         delta=f"{top['overall_score']:.1f}/100 illustrative", delta_color="off",
         border=True,
     )
-    c4.metric(
+    bottom_row[0].metric(
         "Average illustrative score",
         f"{scored['overall_score'].mean():.1f}/100", border=True,
     )
-    c5.metric(
+    bottom_row[1].metric(
         "Potential avoided testing cost",
         format_eur(economics["cost_avoided_eur"]),
         delta=f"{economics['pct_reduction']:.0f}% fewer tests", delta_color="off",
@@ -585,15 +592,25 @@ def render_scenario(df: pd.DataFrame, base: pd.DataFrame, settings: dict) -> Non
     scen_top = set(scenario[scenario["shortlisted"]]["candidate_id"])
     retained = len(base_top & scen_top)
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Shortlist size — scenario", f"{scenario.attrs['n_selected']}",
-              border=True)
-    m2.metric("Shortlist overlap with base case",
-              f"{retained} of {max(len(base_top), 1)}", border=True)
-    m3.metric("Largest upward move",
-              f"{int(movement['rank_change'].max()):+d} places", border=True)
-    m4.metric("Largest downward move",
-              f"{int(movement['rank_change'].min()):+d} places", border=True)
+    # 2 + 2 for the same reason as the executive summary: four columns
+    # truncate "Shortlist overlap with base case".
+    scen_top_row = st.columns(2)
+    scen_bottom_row = st.columns(2)
+    scen_top_row[0].metric(
+        "Shortlist size — scenario", f"{scenario.attrs['n_selected']}", border=True
+    )
+    scen_top_row[1].metric(
+        "Shortlist overlap with base case",
+        f"{retained} of {max(len(base_top), 1)}", border=True,
+    )
+    scen_bottom_row[0].metric(
+        "Largest upward move",
+        f"{int(movement['rank_change'].max()):+d} places", border=True,
+    )
+    scen_bottom_row[1].metric(
+        "Largest downward move",
+        f"{int(movement['rank_change'].min()):+d} places", border=True,
+    )
 
     if len(base_top) and retained < len(base_top):
         st.warning(
@@ -638,23 +655,32 @@ def render_economics(settings: dict, economics: dict) -> None:
         "assumptions you entered, applied to synthetic candidate data."
     )
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Baseline screening cost",
-              format_eur(economics["baseline_cost_eur"]),
-              help=f"{economics['pool_size']} candidates × "
-                   f"EUR {economics['cost_per_test_eur']:,.0f}", border=True)
-    c2.metric("Prioritized screening cost",
-              format_eur(economics["prioritized_cost_eur"]),
-              help=f"{economics['n_selected']} candidates tested", border=True)
-    c3.metric("Potential avoided testing cost",
-              format_eur(economics["cost_avoided_eur"]),
-              delta=f"{economics['pct_reduction']:.1f}% illustrative reduction",
-              delta_color="off", border=True)
-    c4.metric("Estimated time saved",
-              f"{economics['weeks_saved']:.1f} weeks",
-              delta=f"{economics['baseline_weeks']:.0f} → "
-                    f"{economics['prioritized_weeks']:.0f} weeks",
-              delta_color="off", border=True)
+    # 2 + 2: "Potential avoided testing cost" does not fit a quarter-width
+    # column, and this is the one figure that must not be misread.
+    cost_row = st.columns(2)
+    time_row = st.columns(2)
+    cost_row[0].metric(
+        "Baseline screening cost", format_eur(economics["baseline_cost_eur"]),
+        help=f"{economics['pool_size']} candidates × "
+             f"EUR {economics['cost_per_test_eur']:,.0f}", border=True,
+    )
+    cost_row[1].metric(
+        "Prioritized screening cost",
+        format_eur(economics["prioritized_cost_eur"]),
+        help=f"{economics['n_selected']} candidates tested", border=True,
+    )
+    time_row[0].metric(
+        "Potential avoided testing cost",
+        format_eur(economics["cost_avoided_eur"]),
+        delta=f"{economics['pct_reduction']:.1f}% illustrative reduction",
+        delta_color="off", border=True,
+    )
+    time_row[1].metric(
+        "Estimated time saved", f"{economics['weeks_saved']:.1f} weeks",
+        delta=f"{economics['baseline_weeks']:.0f} → "
+              f"{economics['prioritized_weeks']:.0f} weeks",
+        delta_color="off", border=True,
+    )
 
     left, right = st.columns(2)
     with left:
