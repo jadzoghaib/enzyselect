@@ -2,6 +2,11 @@
 
 **AI-assisted enzyme candidate prioritization for PET plastic degradation.**
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://enzyselect.streamlit.app/)
+
+**Live demo → <https://enzyselect.streamlit.app/>** — please read the disclaimer
+below before drawing any conclusion from what it shows.
+
 > ## ⚠️ Educational prototype — demonstration only
 >
 > EnzySelect is a teaching and portfolio project. It is **not** a validated
