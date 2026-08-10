@@ -125,6 +125,28 @@ def test_viewer_html_embeds_coordinates_and_the_library():
     assert "ATOM" in html
 
 
+def test_viewer_carries_a_resize_shim_bound_to_its_own_viewer():
+    """Regression: built inside a hidden tab, the canvas was stuck at 0x0.
+
+    Streamlit renders every tab on page load, so the viewer is created while
+    its container measures 0x0 and never recovers on its own. The shim must
+    reference the same uid py3Dmol generated, or it resizes nothing.
+    """
+    import re
+
+    html = viewer_html(placeholder_backbone_pdb(20))
+    uid = re.search(r"3dmolviewer_(\w+)", html).group(1)
+    assert f'window["viewer_{uid}"]' in html
+    assert f'getElementById("3dmolviewer_{uid}")' in html
+    assert "ResizeObserver" in html
+    assert "__UID__" not in html, "placeholder left unsubstituted"
+
+
+def test_resize_shim_is_present_for_every_style():
+    for style in ("cartoon", "trace"):
+        assert "ResizeObserver" in viewer_html(placeholder_backbone_pdb(15), style=style)
+
+
 @pytest.mark.parametrize("bad_input", [None, "", "not a pdb file"])
 def test_viewer_html_never_raises_on_degenerate_input(bad_input):
     """The app must never crash on a structure it could not parse.

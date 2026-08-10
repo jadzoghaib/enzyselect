@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -204,6 +205,41 @@ def placeholder_backbone_pdb(n_residues: int = 60) -> str:
     return "\n".join(lines)
 
 
+# 3Dmol sizes its WebGL canvas from the container's measured width when the
+# viewer is created. Streamlit renders every tab on page load, so a viewer that
+# lives inside a tab which is not the active one is measured at 0x0 and stays
+# blank even after the user switches to it. This shim re-measures once the
+# container actually has a size. py3Dmol exposes the viewer as a global named
+# `viewer_<uid>`, which is what makes the targeted resize possible.
+_RESIZE_SHIM = """
+<script>
+(function () {
+  var el = document.getElementById("3dmolviewer___UID__");
+  if (!el) { return; }
+  var lastW = 0, lastH = 0;
+  function fit() {
+    var v = window["viewer___UID__"];
+    if (!v) { return false; }
+    var w = el.clientWidth, h = el.clientHeight;
+    if (w === 0 || h === 0) { return false; }
+    if (w === lastW && h === lastH) { return true; }
+    lastW = w; lastH = h;
+    v.resize(); v.render();
+    return true;
+  }
+  // The container goes from 0x0 to its real size when its tab is selected.
+  if (window.ResizeObserver) { new ResizeObserver(fit).observe(el); }
+  window.addEventListener("resize", fit);
+  // 3Dmol.js is fetched from a CDN, so the viewer global appears late.
+  var tries = 0;
+  var poll = setInterval(function () {
+    if (fit() || ++tries > 60) { clearInterval(poll); }
+  }, 250);
+})();
+</script>
+"""
+
+
 def viewer_html(pdb_text: str, height: int = 420, style: str = "cartoon") -> str:
     """Standalone py3Dmol HTML for embedding in Streamlit.
 
@@ -211,6 +247,9 @@ def viewer_html(pdb_text: str, height: int = 420, style: str = "cartoon") -> str
     inside the iframe, so the *viewer* needs internet even when the structure
     itself came from the local cache. When it cannot load, the app falls back
     to links and metadata rather than showing an empty box.
+
+    The returned markup carries a resize shim (see ``_RESIZE_SHIM``) so the
+    canvas is not stuck at 0x0 when the viewer is built inside a hidden tab.
     """
     try:
         import py3Dmol
@@ -227,7 +266,11 @@ def viewer_html(pdb_text: str, height: int = 420, style: str = "cartoon") -> str
         else:
             view.setStyle({"sphere": {"radius": 0.6}, "stick": {"radius": 0.15}})
         view.zoomTo()
-        return view._make_html()
+        html = view._make_html()
+        match = re.search(r"3dmolviewer_(\w+)", html)
+        if match:
+            html += _RESIZE_SHIM.replace("__UID__", match.group(1))
+        return html
     except Exception:
         return ""
 

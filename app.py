@@ -437,19 +437,30 @@ def render_structure_panel(row: pd.Series, allow_network: bool) -> None:
                      f"{summary['pct_residues_plddt_70_plus']:.0f}%")
         st.caption(f"Source: {result['message']}")
 
-        # Shown by default: the fold is the most informative thing on this
-        # panel, and a reviewer should not have to find a switch to see it.
-        # It stays a toggle because the payload is ~190 kB of markup plus a
-        # WebGL context, and Streamlit re-renders every tab on every rerun —
-        # so the markup is memoized below, and anyone on a slow connection can
-        # switch it off.
+        # Deliberately opt-in, after measuring the alternative.
+        #
+        # Rendering it by default was tried and reverted. Streamlit builds
+        # every tab on page load, so the viewer gets created while the
+        # deep-dive panel is still hidden: 3Dmol measures the container at 0x0,
+        # sizes its WebGL canvas to nothing, and the panel stays blank even
+        # after the user switches to it. Building it on every load also
+        # reproduced the browser-renderer freeze from the original build.
+        #
+        # `viewer_html` now carries a resize shim that repairs the 0x0 case
+        # where it can, but a shim cannot make an eager build cheap, so the
+        # switch stays. One click renders it correctly, because by then the
+        # container has a real size.
+        st.caption(
+            "A predicted 3D structure for this candidate's structural family "
+            "is available — switch it on below to explore the fold."
+        )
         show_viewer = st.toggle(
             "Show the interactive 3D viewer",
-            value=True,
+            value=False,
             key=f"viewer_{row['candidate_id']}",
             help="Renders the AlphaFold model with py3Dmol (~190 kB, plus "
-                 "3Dmol.js from a CDN). Switch it off if the page feels slow; "
-                 "the metadata above and the links remain available.",
+                 "3Dmol.js from a CDN). Off by default so the page stays "
+                 "responsive; the metadata above and the links work without it.",
         )
         if show_viewer:
             html = cached_viewer_html(result["pdb_text"], accession)

@@ -144,21 +144,27 @@ def test_reset_weights_leaves_other_widgets_alone():
     assert widget_by_label(at.number_input, "Original screening pool").value == 321
 
 
-def test_viewer_is_shown_by_default():
-    """The fold is the point of the deep dive, so it renders without a click."""
+def test_viewer_is_opt_in():
+    """Regression, measured twice: building it eagerly renders a 0x0 canvas.
+
+    Streamlit builds every tab on page load, so an eagerly-created viewer is
+    measured while its panel is hidden and stays blank. It must stay off by
+    default, and the panel must advertise that it exists.
+    """
     at = fresh_app()
     at.run()
-    assert widget_by_label(at.toggle, "3D viewer").value is True
+    assert widget_by_label(at.toggle, "3D viewer").value is False
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "3D structure" in captions and "switch it on" in captions.lower()
     assert not at.exception
 
 
-def test_viewer_can_be_switched_off():
-    """It stays a toggle so a slow connection can opt out of the payload."""
+def test_viewer_renders_when_switched_on():
     at = fresh_app()
     at.run()
-    widget_by_label(at.toggle, "3D viewer").set_value(False).run()
+    widget_by_label(at.toggle, "3D viewer").set_value(True).run()
     assert not at.exception
-    # The metadata and links must survive without the viewer.
+    # The metadata and links must be present either way.
     body = " ".join(str(m.value) for m in at.markdown)
     assert "AlphaFold DB entry" in body
 
