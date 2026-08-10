@@ -150,6 +150,28 @@ def cached_structure(uniprot_id: str, allow_network: bool) -> dict:
     }
 
 
+@st.cache_data(show_spinner=False)
+def cached_viewer_html(
+    _pdb_text: str,
+    cache_key: str,  # noqa: ARG001 - unused by design; see docstring
+    style: str = "cartoon",
+) -> str:
+    """Memoize the py3Dmol markup for one structure.
+
+    Streamlit re-executes the whole script on every widget interaction, so
+    without this the viewer would be rebuilt from raw coordinates on each
+    slider move. ``_pdb_text`` is underscore-prefixed so Streamlit skips
+    hashing the ~180 kB string; ``cache_key`` (the accession) identifies the
+    entry instead.
+
+    ``cache_key`` is never referenced in the body — that is the point. It
+    exists so Streamlit has something cheap to hash. It must *not* be renamed
+    with a leading underscore, which would exclude it from the hash and make
+    every structure collide on one cache entry.
+    """
+    return viewer_html(_pdb_text, style=style)
+
+
 # --------------------------------------------------------------------------
 # Sidebar — section 2: process configuration
 # --------------------------------------------------------------------------
@@ -415,20 +437,22 @@ def render_structure_panel(row: pd.Series, allow_network: bool) -> None:
                      f"{summary['pct_residues_plddt_70_plus']:.0f}%")
         st.caption(f"Source: {result['message']}")
 
-        # The viewer is opt-in on purpose. Streamlit renders every tab on each
-        # page load, and the py3Dmol payload is ~190 kB of markup plus a WebGL
-        # context. Building that unconditionally makes the whole page heavy —
-        # and can lock up the browser renderer — for a panel most users never
-        # scroll to. Gating it behind a toggle keeps the app responsive.
+        # Shown by default: the fold is the most informative thing on this
+        # panel, and a reviewer should not have to find a switch to see it.
+        # It stays a toggle because the payload is ~190 kB of markup plus a
+        # WebGL context, and Streamlit re-renders every tab on every rerun —
+        # so the markup is memoized below, and anyone on a slow connection can
+        # switch it off.
         show_viewer = st.toggle(
-            "Load the interactive 3D viewer",
-            value=False,
+            "Show the interactive 3D viewer",
+            value=True,
             key=f"viewer_{row['candidate_id']}",
-            help="Loads ~190 kB of viewer code and 3Dmol.js from a CDN. The "
-                 "metadata above and the links are available without it.",
+            help="Renders the AlphaFold model with py3Dmol (~190 kB, plus "
+                 "3Dmol.js from a CDN). Switch it off if the page feels slow; "
+                 "the metadata above and the links remain available.",
         )
         if show_viewer:
-            html = viewer_html(result["pdb_text"])
+            html = cached_viewer_html(result["pdb_text"], accession)
             if html:
                 render_raw_html(html, height=440)
                 st.caption(

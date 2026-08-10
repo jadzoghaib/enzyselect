@@ -144,14 +144,55 @@ def test_reset_weights_leaves_other_widgets_alone():
     assert widget_by_label(at.number_input, "Original screening pool").value == 321
 
 
-def test_viewer_is_opt_in_and_loads_on_demand():
-    """Regression: the 190 kB viewer used to render on every page load."""
+def test_viewer_is_shown_by_default():
+    """The fold is the point of the deep dive, so it renders without a click."""
     at = fresh_app()
     at.run()
-    toggle = widget_by_label(at.toggle, "3D viewer")
-    assert toggle.value is False
-    toggle.set_value(True).run()
+    assert widget_by_label(at.toggle, "3D viewer").value is True
     assert not at.exception
+
+
+def test_viewer_can_be_switched_off():
+    """It stays a toggle so a slow connection can opt out of the payload."""
+    at = fresh_app()
+    at.run()
+    widget_by_label(at.toggle, "3D viewer").set_value(False).run()
+    assert not at.exception
+    # The metadata and links must survive without the viewer.
+    body = " ".join(str(m.value) for m in at.markdown)
+    assert "AlphaFold DB entry" in body
+
+
+def test_viewer_markup_is_memoized_not_rebuilt(monkeypatch):
+    """Regression: rebuilding ~190 kB of WebGL markup on every rerun froze the
+    browser. Now that the viewer renders by default, a second render of the
+    same structure must be served from cache rather than rebuilt.
+
+    Identity is not the test — ``st.cache_data`` hands back a copy — so this
+    counts calls to the underlying builder instead.
+    """
+    import app as enzyselect_app
+    from src.structures import get_structure
+
+    result = get_structure("Q6A0I4", allow_network=False)
+    if not result.pdb_text:
+        pytest.skip("no cached structure available")
+
+    enzyselect_app.cached_viewer_html.clear()
+    builds: list[str] = []
+    original = enzyselect_app.viewer_html
+
+    def counting(pdb_text, style="cartoon"):
+        builds.append(style)
+        return original(pdb_text, style=style)
+
+    monkeypatch.setattr(enzyselect_app, "viewer_html", counting)
+    first = enzyselect_app.cached_viewer_html(result.pdb_text, "Q6A0I4")
+    second = enzyselect_app.cached_viewer_html(result.pdb_text, "Q6A0I4")
+
+    assert first == second
+    assert len(builds) == 1, "viewer markup was rebuilt instead of cached"
+    assert "3dmolviewer" in first
 
 
 def test_scenario_controls_recompute_without_error():
