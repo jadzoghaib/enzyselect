@@ -206,11 +206,20 @@ def placeholder_backbone_pdb(n_residues: int = 60) -> str:
 
 
 # 3Dmol sizes its WebGL canvas from the container's measured width when the
-# viewer is created. Streamlit renders every tab on page load, so a viewer that
-# lives inside a tab which is not the active one is measured at 0x0 and stays
-# blank even after the user switches to it. This shim re-measures once the
-# container actually has a size. py3Dmol exposes the viewer as a global named
-# `viewer_<uid>`, which is what makes the targeted resize possible.
+# viewer is created, so a viewer built inside a hidden container is measured at
+# 0x0 and stays blank even once the container is shown. This shim re-measures
+# and resizes when the container gains a real size; py3Dmol exposes the viewer
+# as a global named `viewer_<uid>`, which is what makes that possible. Calling
+# resize() by hand was confirmed in a browser to repair the case (0x0 ->
+# 1620x840).
+#
+# Scope, honestly: this is a safety net, not the reason the app works. In
+# EnzySelect the viewer is only built on demand, while its panel is visible, so
+# the 0x0 path is unreachable through the UI. It has also not been confirmed
+# that Streamlit's `st.html` executes a second appended <script> at all — the
+# tests below assert only that the shim is present and correctly bound in the
+# generated markup, which is what `viewer_html` is responsible for. Anything
+# embedding this HTML outside Streamlit gets the benefit for free.
 _RESIZE_SHIM = """
 <script>
 (function () {

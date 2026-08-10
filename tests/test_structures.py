@@ -126,11 +126,12 @@ def test_viewer_html_embeds_coordinates_and_the_library():
 
 
 def test_viewer_carries_a_resize_shim_bound_to_its_own_viewer():
-    """Regression: built inside a hidden tab, the canvas was stuck at 0x0.
+    """A viewer built inside a hidden container is measured at 0x0 by 3Dmol.
 
-    Streamlit renders every tab on page load, so the viewer is created while
-    its container measures 0x0 and never recovers on its own. The shim must
-    reference the same uid py3Dmol generated, or it resizes nothing.
+    This asserts what ``viewer_html`` is actually responsible for: that the
+    shim is emitted and bound to the uid py3Dmol generated. Mis-binding it
+    would resize nothing. Whether a given host executes the appended script is
+    the host's business, not this function's — see the note in structures.py.
     """
     import re
 
