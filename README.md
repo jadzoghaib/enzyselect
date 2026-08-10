@@ -93,7 +93,7 @@ enzyselect/
 │   ├── structures.py            AlphaFold/UniProt integration + graceful degradation
 │   └── visualizations.py        Plotly figures
 ├── docs/screenshots/            Placeholder — no screenshots captured yet
-└── tests/                       138 tests: scoring, economics, structures,
+└── tests/                       142 tests: scoring, economics, structures,
                                  network fallbacks, figures, the Streamlit app
                                  end-to-end, and integrity-language guards
 ```
@@ -286,7 +286,7 @@ Run the tests and quality checks with:
 ```bash
 pip install -r requirements-dev.txt
 
-python -m pytest tests -q          # 138 tests
+python -m pytest tests -q          # 142 tests
 python -m ruff check .             # lint
 python -m mypy src app.py --ignore-missing-imports
 python -m coverage run -m pytest tests -q && python -m coverage report
